@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,20 +17,19 @@ func main() {
 	interval := flag.Duration("interval", getInterval(), "Check interval for image updates")
 	flag.Parse()
 
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	dc, err := dockerclient.New(ctx)
 	if err != nil {
-		log.Fatalf("Failed to connect to Docker daemon: %v", err)
+		slog.Error("failed to connect to Docker daemon", "error", err)
+		os.Exit(1)
 	}
 	defer dc.Close()
 
 	checker := updater.NewChecker(dc)
 
-	log.Printf("Dockdater started (interval: %s)", *interval)
+	slog.Info("dockdater started", "interval", *interval)
 
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
@@ -40,7 +39,7 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Dockdater stopped")
+			slog.Info("dockdater stopped")
 			return
 		case <-ticker.C:
 			check(ctx, checker)
@@ -52,7 +51,7 @@ func getInterval() time.Duration {
 	if v := os.Getenv("DOCKDATER_INTERVAL"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			log.Printf("Warning: invalid DOCKDATER_INTERVAL %q, using default: %v", v, err)
+			slog.Warn("invalid DOCKDATER_INTERVAL", "value", v, "error", err)
 			return 5 * time.Minute
 		}
 		return d
@@ -61,8 +60,8 @@ func getInterval() time.Duration {
 }
 
 func check(ctx context.Context, checker *updater.Checker) {
-	log.Println("Checking for image updates...")
+	slog.Debug("checking for image updates")
 	if err := checker.CheckAndUpdate(ctx); err != nil {
-		log.Printf("Error during check: %v", err)
+		slog.Error("check failed", "error", err)
 	}
 }

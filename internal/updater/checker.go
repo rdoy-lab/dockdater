@@ -3,7 +3,7 @@ package updater
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	dockerclient "github.com/rdoy-lab/dockdater/internal/docker"
@@ -40,32 +40,31 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 		}
 
 		ref := normalizeRef(ctr.Image)
-		log.Printf("Checking %s/%s (image: %s)", ctr.Project, ctr.Service, ref)
+		slog.Debug("checking image", "project", ctr.Project, "service", ctr.Service, "ref", ref)
 
 		oldID, err := c.docker.ImageDigest(ctx, ref)
 		if err != nil {
-			log.Printf("Error inspecting %s: %v", ref, err)
+			slog.Error("inspecting image", "ref", ref, "error", err)
 			continue
 		}
 
 		if err := c.docker.PullImage(ctx, ref); err != nil {
-			log.Printf("Error pulling %s: %v", ref, err)
+			slog.Error("pulling image", "ref", ref, "error", err)
 			continue
 		}
 
 		newID, err := c.docker.ImageDigest(ctx, ref)
 		if err != nil {
-			log.Printf("Error inspecting %s after pull: %v", ref, err)
+			slog.Error("inspecting image after pull", "ref", ref, "error", err)
 			continue
 		}
 
 		if oldID == newID {
-			log.Printf("Up-to-date: %s/%s", ctr.Project, ctr.Service)
+			slog.Debug("image already up-to-date", "project", ctr.Project, "service", ctr.Service, "ref", ref)
 			continue
 		}
 
-		log.Printf("Update available: %s/%s %s -> %s",
-			ctr.Project, ctr.Service, shortID(oldID), shortID(newID))
+		slog.Info("update available", "project", ctr.Project, "service", ctr.Service, "old", shortID(oldID), "new", shortID(newID))
 		toUpdate = append(toUpdate, update{ctr: ctr, ref: ref, oldID: oldID, newID: newID})
 	}
 
@@ -73,26 +72,26 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 		return nil
 	}
 
-	log.Printf("Updating %d service(s)...", len(toUpdate))
+	slog.Info("updating services", "count", len(toUpdate))
 
 	for _, u := range toUpdate {
-		log.Printf("Recreating %s/%s with %s", u.ctr.Project, u.ctr.Service, u.ref)
+		slog.Info("recreating container", "project", u.ctr.Project, "service", u.ctr.Service, "ref", u.ref)
 
 		newID, err := c.docker.RecreateContainer(ctx, u.ctr.ID, u.ref)
 		if err != nil {
-			log.Printf("Error recreating %s/%s: %v", u.ctr.Project, u.ctr.Service, err)
+			slog.Error("recreating container", "project", u.ctr.Project, "service", u.ctr.Service, "error", err)
 			continue
 		}
 
-		log.Printf("Recreated %s/%s -> %s", u.ctr.Project, u.ctr.Service, shortID(newID))
+		slog.Info("recreated container", "project", u.ctr.Project, "service", u.ctr.Service, "newID", shortID(newID))
 
 		if u.oldID != u.newID {
 			if err := c.docker.RemoveImage(ctx, u.oldID); err != nil {
-				log.Printf("Could not remove old image %s: %v", shortID(u.oldID), err)
+				slog.Warn("could not remove old image", "oldID", shortID(u.oldID), "error", err)
 			}
 		}
 
-		log.Printf("Updated %s/%s", u.ctr.Project, u.ctr.Service)
+		slog.Info("updated service", "project", u.ctr.Project, "service", u.ctr.Service)
 	}
 
 	return nil

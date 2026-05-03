@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"strings"
 
 	containertypes "github.com/moby/moby/api/types/container"
@@ -71,13 +71,13 @@ func (c *Client) ImageDigest(ctx context.Context, ref string) (string, error) {
 }
 
 func (c *Client) PullImage(ctx context.Context, ref string) error {
-	log.Printf("Pulling %s", ref)
+	slog.Info("pulling image", "ref", ref)
 	resp, err := c.cli.ImagePull(ctx, ref, client.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("pulling %s: %w", ref, err)
 	}
 	if _, err := io.Copy(io.Discard, resp); err != nil {
-		log.Printf("Warning: discarding pull output: %v", err)
+		slog.Warn("discarding pull output", "error", err)
 	}
 	resp.Close()
 	return nil
@@ -88,7 +88,7 @@ func (c *Client) RemoveImage(ctx context.Context, imageID string) error {
 	if err != nil {
 		return fmt.Errorf("removing image %s: %w", imageID, err)
 	}
-	log.Printf("Removed old image %s", imageID)
+	slog.Info("removed old image", "imageID", imageID)
 	return nil
 }
 
