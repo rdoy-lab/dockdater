@@ -108,6 +108,7 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 		}
 
 		slog.Info("recreated container", "project", u.ctr.Project, "service", u.ctr.Service, "newID", shortID(newID))
+		c.store.ReplaceContainerID(u.ctr.ID, newID)
 		c.store.MarkContainerChecked(newID, true)
 		c.store.AddDeployment(state.DeploymentRow{
 			Time:    time.Now().Format(time.RFC3339),

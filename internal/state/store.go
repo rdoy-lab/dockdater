@@ -53,6 +53,17 @@ func (s *Store) UpdateContainers(rows []ContainerRow, checkedAt time.Time) {
 	s.lastChecked = checkedAt
 }
 
+func (s *Store) ReplaceContainerID(oldID, newID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, c := range s.containers {
+		if c.ID == oldID {
+			s.containers[i].ID = newID
+			return
+		}
+	}
+}
+
 func (s *Store) MarkContainerChecked(id string, upToDate bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
