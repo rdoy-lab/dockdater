@@ -130,13 +130,13 @@ async function fetchStatus() {
           '<td>' + c.state + '</td>' +
           '<td>' + managed + '</td>' +
           '<td>' + statusTag + '</td>' +
-          '<td title="' + (c.lastChecked ? relativeTime(c.lastChecked) : '') + '">' + (c.lastChecked ? formatTime(c.lastChecked) : '—') + '</td>' +
+           '<td>' + (c.lastChecked ? formatTime(c.lastChecked) : '—') + '</td>' +
           '</tr>';
       }).join('');
     }
 
     document.getElementById('last-checked').textContent =
-      status.lastChecked ? 'Last checked: ' + formatTime(status.lastChecked) + ' (' + relativeTime(status.lastChecked) + ')' : '';
+      status.lastChecked ? 'Last checked: ' + formatTime(status.lastChecked) : '';
 
     const depsTbody = document.getElementById('deployments-tbody');
     if (deps.length === 0) {
@@ -144,7 +144,7 @@ async function fetchStatus() {
     } else {
       depsTbody.innerHTML = deps.map(d =>
         '<tr>' +
-        '<td title="' + relativeTime(d.time) + '">' + formatTime(d.time) + '</td>' +
+        '<td>' + formatTime(d.time) + '</td>' +
         '<td>' + (d.project || '-') + '</td>' +
         '<td>' + (d.service || '-') + '</td>' +
         '<td class="container-name" title="' + esc(d.image) + '">' + esc(d.image) + '</td>' +
@@ -161,7 +161,13 @@ async function fetchStatus() {
 
 function formatTime(iso) {
   const d = new Date(iso);
-  return d.toLocaleString();
+  const now = new Date();
+  let diff = Math.floor((now - d) / 1000);
+  if (diff < 0) diff = 0;
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ' + (diff % 60) + 's ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
 }
 
 function relativeTime(iso) {
