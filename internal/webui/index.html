@@ -46,6 +46,8 @@ tr:hover td { background: #1e293b; }
 .dot-warn { background: #f59e0b; }
 .dot-none { background: #475569; }
 .flex { display: flex; align-items: center; gap: 8px; }
+.filter-label { font-size: 12px; color: #94a3b8; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.filter-label input { accent-color: #38bdf8; }
 @media (max-width: 768px) {
   body { padding: 12px; }
   td, th { padding: 6px 8px; }
@@ -57,7 +59,7 @@ tr:hover td { background: #1e293b; }
 <div class="subtitle" id="subtitle">Connecting...</div>
 
 <div class="card">
-  <h2>Containers <button class="refresh-btn" onclick="fetchStatus()">Refresh</button></h2>
+  <h2>Containers <button class="refresh-btn" onclick="fetchStatus()">Refresh</button><label class="filter-label"><input type="checkbox" id="show-all" onchange="fetchStatus()"> show all</label></h2>
   <table>
     <thead>
       <tr>
@@ -105,14 +107,20 @@ async function fetchStatus() {
     const status = await statusRes.json();
     const deps = await depsRes.json();
 
+    const showAll = document.getElementById('show-all').checked;
+    let containers = status.containers;
+    if (!showAll) {
+      containers = containers.filter(c => c.enabled);
+    }
+
     document.getElementById('subtitle').textContent =
-      status.containers.length + ' container(s) monitored';
+      containers.length + ' container(s) monitored';
 
     const containersTbody = document.getElementById('containers-tbody');
-    if (status.containers.length === 0) {
+    if (containers.length === 0) {
       containersTbody.innerHTML = '<tr><td colspan="7" class="empty">No containers found</td></tr>';
     } else {
-      containersTbody.innerHTML = status.containers.map(c => {
+      containersTbody.innerHTML = containers.map(c => {
         const statusTag = c.enabled
           ? (c.hasError ? '<span class="tag tag-error">error</span>'
             : c.upToDate ? '<span class="tag tag-uptodate">up-to-date</span>'
@@ -167,17 +175,6 @@ function formatTime(iso) {
   if (diff < 60) return diff + 's ago';
   if (diff < 3600) return Math.floor(diff / 60) + 'm ' + (diff % 60) + 's ago';
   if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-  return Math.floor(diff / 86400) + 'd ago';
-}
-
-function relativeTime(iso) {
-  const d = new Date(iso);
-  const now = new Date();
-  let diff = Math.floor((now - d) / 1000);
-  if (diff < 0) diff = 0;
-  if (diff < 60) return diff + 's ago';
-  if (diff < 3600) return Math.floor(diff / 60) + 'm ' + (diff % 60) + 's ago';
-  if (diff < 86400) return Math.floor(diff / 3600) + 'h ' + (Math.floor(diff % 3600 / 60)) + 'm ago';
   return Math.floor(diff / 86400) + 'd ago';
 }
 
