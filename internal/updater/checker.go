@@ -5,18 +5,21 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	dockerclient "github.com/rdoy-lab/dockdater/internal/docker"
+	"github.com/rdoy-lab/dockdater/internal/state"
 )
 
 const enabledLabel = "dockdater.enabled"
 
 type Checker struct {
 	docker *dockerclient.Client
+	store  *state.Store
 }
 
-func NewChecker(dc *dockerclient.Client) *Checker {
-	return &Checker{docker: dc}
+func NewChecker(dc *dockerclient.Client, store *state.Store) *Checker {
+	return &Checker{docker: dc, store: store}
 }
 
 func (c *Checker) CheckAndUpdate(ctx context.Context) error {
@@ -24,6 +27,22 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("listing containers: %w", err)
 	}
+
+	now := time.Now()
+
+	rows := make([]state.ContainerRow, 0, len(containers))
+	for _, ctr := range containers {
+		rows = append(rows, state.ContainerRow{
+			ID:      ctr.ID,
+			Names:   ctr.Names,
+			Image:   ctr.Image,
+			State:   ctr.State,
+			Project: ctr.Project,
+			Service: ctr.Service,
+			Enabled: ctr.Labels[enabledLabel] == "true",
+		})
+	}
+	c.store.UpdateContainers(rows, now)
 
 	type update struct {
 		ctr   dockerclient.Container
@@ -45,22 +64,26 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 		oldID, err := c.docker.ImageDigest(ctx, ref)
 		if err != nil {
 			slog.Error("inspecting image", "ref", ref, "error", err)
+			c.store.MarkContainerError(ctr.ID)
 			continue
 		}
 
 		if err := c.docker.PullImage(ctx, ref); err != nil {
 			slog.Error("pulling image", "ref", ref, "error", err)
+			c.store.MarkContainerError(ctr.ID)
 			continue
 		}
 
 		newID, err := c.docker.ImageDigest(ctx, ref)
 		if err != nil {
 			slog.Error("inspecting image after pull", "ref", ref, "error", err)
+			c.store.MarkContainerError(ctr.ID)
 			continue
 		}
 
 		if oldID == newID {
 			slog.Debug("image already up-to-date", "project", ctr.Project, "service", ctr.Service, "ref", ref)
+			c.store.MarkContainerChecked(ctr.ID, true)
 			continue
 		}
 
@@ -80,10 +103,20 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 		newID, err := c.docker.RecreateContainer(ctx, u.ctr.ID, u.ref)
 		if err != nil {
 			slog.Error("recreating container", "project", u.ctr.Project, "service", u.ctr.Service, "error", err)
+			c.store.MarkContainerError(u.ctr.ID)
 			continue
 		}
 
 		slog.Info("recreated container", "project", u.ctr.Project, "service", u.ctr.Service, "newID", shortID(newID))
+		c.store.MarkContainerChecked(newID, true)
+		c.store.AddDeployment(state.DeploymentRow{
+			Time:    time.Now().Format(time.RFC3339),
+			Project: u.ctr.Project,
+			Service: u.ctr.Service,
+			Image:   u.ref,
+			OldRef:  u.oldID,
+			NewRef:  u.newID,
+		})
 
 		if u.oldID != u.newID {
 			if err := c.docker.RemoveImage(ctx, u.oldID); err != nil {

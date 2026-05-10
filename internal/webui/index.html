@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>dockdater</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0f172a; color: #e2e8f0; padding: 24px;
+}
+h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+h1 span { color: #38bdf8; }
+.subtitle { color: #94a3b8; font-size: 13px; margin-bottom: 24px; }
+.card {
+  background: #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 16px;
+}
+.card h2 { font-size: 14px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 8px 12px; color: #64748b; font-weight: 600; border-bottom: 1px solid #334155; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+td { padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+tr:hover td { background: #1e293b; }
+.tag {
+  display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+}
+.tag-enabled { background: #166534; color: #86efac; }
+.tag-disabled { background: #374151; color: #9ca3af; }
+.tag-uptodate { background: #166534; color: #86efac; }
+.tag-outdated { background: #9a3412; color: #fdba74; }
+.tag-error { background: #7f1d1d; color: #fca5a5; }
+.tag-unknown { background: #374151; color: #9ca3af; }
+.container-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { color: #64748b; font-style: italic; padding: 24px 0; text-align: center; }
+.refresh-btn {
+  float: right; background: #334155; border: none; color: #94a3b8;
+  padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px;
+}
+.refresh-btn:hover { background: #475569; color: #e2e8f0; }
+.last-updated { color: #64748b; font-size: 12px; margin-top: 12px; }
+.status-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+}
+.dot-ok { background: #22c55e; }
+.dot-err { background: #ef4444; }
+.dot-warn { background: #f59e0b; }
+.dot-none { background: #475569; }
+.flex { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 768px) {
+  body { padding: 12px; }
+  td, th { padding: 6px 8px; }
+}
+</style>
+</head>
+<body>
+<h1><span>dock</span>dater</h1>
+<div class="subtitle" id="subtitle">Connecting...</div>
+
+<div class="card">
+  <h2>Containers <button class="refresh-btn" onclick="fetchStatus()">Refresh</button></h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Project</th>
+        <th>Service</th>
+        <th>Image</th>
+        <th>State</th>
+        <th>Managed</th>
+        <th>Status</th>
+        <th>Last Checked</th>
+      </tr>
+    </thead>
+    <tbody id="containers-tbody">
+      <tr><td colspan="7" class="empty">Loading...</td></tr>
+    </tbody>
+  </table>
+  <div class="last-updated" id="last-checked"></div>
+</div>
+
+<div class="card">
+  <h2>Deployments</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Project</th>
+        <th>Service</th>
+        <th>Image</th>
+        <th>Change</th>
+      </tr>
+    </thead>
+    <tbody id="deployments-tbody">
+      <tr><td colspan="5" class="empty">No deployments yet</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+async function fetchStatus() {
+  try {
+    const [statusRes, depsRes] = await Promise.all([
+      fetch('/api/status'),
+      fetch('/api/deployments')
+    ]);
+    const status = await statusRes.json();
+    const deps = await depsRes.json();
+
+    document.getElementById('subtitle').textContent =
+      status.containers.length + ' container(s) monitored';
+
+    const containersTbody = document.getElementById('containers-tbody');
+    if (status.containers.length === 0) {
+      containersTbody.innerHTML = '<tr><td colspan="7" class="empty">No containers found</td></tr>';
+    } else {
+      containersTbody.innerHTML = status.containers.map(c => {
+        const statusTag = c.enabled
+          ? (c.hasError ? '<span class="tag tag-error">error</span>'
+            : c.upToDate ? '<span class="tag tag-uptodate">up-to-date</span>'
+            : '<span class="tag tag-outdated">updated</span>')
+          : '<span class="tag tag-unknown">—</span>';
+        const managed = c.enabled
+          ? '<span class="tag tag-enabled">enabled</span>'
+          : '<span class="tag tag-disabled">—</span>';
+        const stateDot = c.state === 'running' ? 'dot-ok' : c.state === 'exited' ? 'dot-err' : 'dot-warn';
+        const names = c.names && c.names.length ? c.names.join(', ').replace(/^\//, '') : '';
+        return '<tr>' +
+          '<td>' + (c.project || '-') + '</td>' +
+          '<td><div class="flex"><span class="status-dot ' + stateDot + '"></span>' + (c.service || names || shortID(c.id)) + '</div></td>' +
+          '<td class="container-name" title="' + esc(c.image) + '">' + esc(c.image) + '</td>' +
+          '<td>' + c.state + '</td>' +
+          '<td>' + managed + '</td>' +
+          '<td>' + statusTag + '</td>' +
+          '<td>' + (c.lastChecked ? formatTime(c.lastChecked) : '—') + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    document.getElementById('last-checked').textContent =
+      status.lastChecked ? 'Last checked: ' + formatTime(status.lastChecked) : '';
+
+    const depsTbody = document.getElementById('deployments-tbody');
+    if (deps.length === 0) {
+      depsTbody.innerHTML = '<tr><td colspan="5" class="empty">No deployments yet</td></tr>';
+    } else {
+      depsTbody.innerHTML = deps.map(d =>
+        '<tr>' +
+        '<td>' + formatTime(d.time) + '</td>' +
+        '<td>' + (d.project || '-') + '</td>' +
+        '<td>' + (d.service || '-') + '</td>' +
+        '<td class="container-name" title="' + esc(d.image) + '">' + esc(d.image) + '</td>' +
+        '<td><code>' + shortDigest(d.oldRef) + '</code> → <code>' + shortDigest(d.newRef) + '</code></td>' +
+        '</tr>'
+      ).join('');
+    }
+  } catch (err) {
+    document.getElementById('subtitle').textContent = 'Connection error';
+    document.getElementById('containers-tbody').innerHTML =
+      '<tr><td colspan="7" class="empty">Error loading data</td></tr>';
+  }
+}
+
+function formatTime(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = now - d;
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  return d.toLocaleString();
+}
+
+function shortDigest(d) {
+  if (!d) return '-';
+  if (d.length > 19 && d.startsWith('sha256:')) return d.substring(7, 19);
+  if (d.length > 12) return d.substring(0, 12);
+  return d;
+}
+
+function shortID(id) {
+  if (!id) return '-';
+  if (id.length > 12) return id.substring(0, 12);
+  return id;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+fetchStatus();
+setInterval(fetchStatus, 5000);
+</script>
+</body>
+</html>

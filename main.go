@@ -10,11 +10,14 @@ import (
 	"time"
 
 	dockerclient "github.com/rdoy-lab/dockdater/internal/docker"
+	"github.com/rdoy-lab/dockdater/internal/state"
 	"github.com/rdoy-lab/dockdater/internal/updater"
+	"github.com/rdoy-lab/dockdater/internal/webui"
 )
 
 func main() {
 	interval := flag.Duration("interval", getInterval(), "Check interval for image updates")
+	webAddr := flag.String("web", getWebAddr(), "Web UI listen address (e.g. :8080)")
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -27,9 +30,15 @@ func main() {
 	}
 	defer dc.Close()
 
-	checker := updater.NewChecker(dc)
+	store := state.New()
+	checker := updater.NewChecker(dc, store)
 
-	slog.Info("dockdater started", "interval", *interval)
+	if err := webui.Start(*webAddr, store); err != nil {
+		slog.Error("failed to start web UI", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("dockdater started", "interval", *interval, "web", *webAddr)
 
 	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
@@ -57,6 +66,13 @@ func getInterval() time.Duration {
 		return d
 	}
 	return 5 * time.Minute
+}
+
+func getWebAddr() string {
+	if v := os.Getenv("DOCKDATER_WEB"); v != "" {
+		return v
+	}
+	return ":8080"
 }
 
 func check(ctx context.Context, checker *updater.Checker) {
