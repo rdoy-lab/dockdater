@@ -68,6 +68,47 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 			continue
 		}
 
+		// Check registry manifest digest without pulling image layers.
+		regDigest, err := c.docker.RegistryManifestDigest(ctx, ref)
+		if err != nil {
+			// Fallback: pull and compare digests (old behavior).
+			slog.Warn("registry check failed, falling back to pull", "ref", ref, "error", err)
+			if err := c.docker.PullImage(ctx, ref); err != nil {
+				slog.Error("pulling image", "ref", ref, "error", err)
+				c.store.MarkContainerError(ctr.ID)
+				continue
+			}
+			newID, err := c.docker.ImageDigest(ctx, ref)
+			if err != nil {
+				slog.Error("inspecting image after pull", "ref", ref, "error", err)
+				c.store.MarkContainerError(ctr.ID)
+				continue
+			}
+			if oldID == newID {
+				slog.Debug("image already up-to-date", "project", ctr.Project, "service", ctr.Service, "ref", ref)
+				c.store.MarkContainerChecked(ctr.ID, true)
+				continue
+			}
+			slog.Info("update available", "project", ctr.Project, "service", ctr.Service, "old", shortID(oldID), "new", shortID(newID))
+			toUpdate = append(toUpdate, update{ctr: ctr, ref: ref, oldID: oldID, newID: newID})
+			continue
+		}
+
+		// Check if the locally cached image already has this manifest digest.
+		repoDigests, err := c.docker.RepoDigests(ctx, ref)
+		if err != nil {
+			slog.Error("inspecting image repo digests", "ref", ref, "error", err)
+			c.store.MarkContainerError(ctr.ID)
+			continue
+		}
+
+		if hasManifestDigest(repoDigests, regDigest) {
+			slog.Debug("image already up-to-date", "project", ctr.Project, "service", ctr.Service, "ref", ref)
+			c.store.MarkContainerChecked(ctr.ID, true)
+			continue
+		}
+
+		slog.Info("update available", "project", ctr.Project, "service", ctr.Service, "ref", ref, "registry-digest", shortID(regDigest))
 		if err := c.docker.PullImage(ctx, ref); err != nil {
 			slog.Error("pulling image", "ref", ref, "error", err)
 			c.store.MarkContainerError(ctr.ID)
@@ -81,13 +122,6 @@ func (c *Checker) CheckAndUpdate(ctx context.Context) error {
 			continue
 		}
 
-		if oldID == newID {
-			slog.Debug("image already up-to-date", "project", ctr.Project, "service", ctr.Service, "ref", ref)
-			c.store.MarkContainerChecked(ctr.ID, true)
-			continue
-		}
-
-		slog.Info("update available", "project", ctr.Project, "service", ctr.Service, "old", shortID(oldID), "new", shortID(newID))
 		toUpdate = append(toUpdate, update{ctr: ctr, ref: ref, oldID: oldID, newID: newID})
 	}
 
@@ -141,6 +175,17 @@ func normalizeRef(ref string) string {
 		return ref + ":latest"
 	}
 	return ref
+}
+
+// hasManifestDigest checks whether any entry in repoDigests (formatted as
+// "repository@digest") contains the given targetDigest.
+func hasManifestDigest(repoDigests []string, targetDigest string) bool {
+	for _, rd := range repoDigests {
+		if _, d, ok := strings.Cut(rd, "@"); ok && d == targetDigest {
+			return true
+		}
+	}
+	return false
 }
 
 func shortID(id string) string {

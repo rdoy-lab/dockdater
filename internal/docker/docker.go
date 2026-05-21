@@ -70,6 +70,27 @@ func (c *Client) ImageDigest(ctx context.Context, ref string) (string, error) {
 	return result.ID, nil
 }
 
+// RepoDigests returns the list of content-addressable manifest digests
+// referencing the locally cached image. Entries are in "repository@digest" format.
+func (c *Client) RepoDigests(ctx context.Context, ref string) ([]string, error) {
+	result, err := c.cli.ImageInspect(ctx, ref)
+	if err != nil {
+		return nil, fmt.Errorf("inspecting image %s: %w", ref, err)
+	}
+	return result.RepoDigests, nil
+}
+
+// RegistryManifestDigest returns the manifest digest of an image from the
+// registry without pulling the image. This allows checking for updates
+// without transferring image layers.
+func (c *Client) RegistryManifestDigest(ctx context.Context, ref string) (string, error) {
+	result, err := c.cli.DistributionInspect(ctx, ref, client.DistributionInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("checking registry manifest for %s: %w", ref, err)
+	}
+	return string(result.Descriptor.Digest), nil
+}
+
 func (c *Client) PullImage(ctx context.Context, ref string) error {
 	slog.Info("pulling image", "ref", ref)
 	resp, err := c.cli.ImagePull(ctx, ref, client.ImagePullOptions{})
