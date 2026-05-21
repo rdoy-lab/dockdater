@@ -12,14 +12,13 @@ import (
 	"github.com/rdoy-lab/dockdater/internal/state"
 )
 
-//go:embed index.html favicon.svg
+//go:embed index.html favicon.ico
 var htmlContent embed.FS
 
 func Start(addr string, store *state.Store) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/favicon.ico", serveFavicon)
-	mux.HandleFunc("/favicon.svg", serveFavicon)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -76,12 +75,12 @@ func Start(addr string, store *state.Store) error {
 }
 
 func serveFavicon(w http.ResponseWriter, r *http.Request) {
-	data, err := htmlContent.ReadFile("favicon.svg")
+	data, err := htmlContent.ReadFile("favicon.ico")
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Content-Type", "image/x-icon")
 	w.Write(data)
 }
 
